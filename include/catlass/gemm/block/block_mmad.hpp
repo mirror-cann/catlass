@@ -37,7 +37,7 @@ template <
         Gemm::Tile::TileCopyGemm<typename DispatchPolicy::ArchTag, AType, BType, CType, BiasType>, // change the name
     class TileMmad = Gemm::Tile::TileMmad<typename DispatchPolicy::ArchTag, AType, BType, BiasType> >
 struct BlockGemm {
-    static_assert(DEPENDENT_FALSE<DispatchPolicy>, "BlockMmad is not implemented for this DispatchPolicy");
+    static_assert(DEPENDENT_FALSE<DispatchPolicy>, "BlockGemm is not implemented for this DispatchPolicy");
 };
 
 template <class DispatchPolicy, class AType, class BType, class CType, class BiasType, class TileCopy, class TileMmad>
@@ -111,6 +111,7 @@ struct BlockPrologue {
 #include "catlass/gemm/block/block_mmad_pingpong_full_loadA_tla.hpp"
 #include "catlass/gemm/block/block_mmad_pingpong_with_prologue.hpp"
 #include "catlass/gemm/block/block_mmad_pingpong_slice_k_with_prologue.hpp"
+#include "catlass/gemm/block/block_mmad_planar_complex_fused_tla.hpp"
 #include "catlass/gemm/block/block_mmad_dynamic_common.hpp"
 #include "catlass/gemm/block/block_mmad_dynamic_small.hpp"
 #include "catlass/gemm/block/block_mmad_dynamic_streamk.hpp"

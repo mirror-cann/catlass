@@ -519,6 +519,12 @@ struct MmadFlashAttentionPV : public MmadBase<ArchTag_, false> {
     static constexpr bool ENABLE_DN = ENABLE_DN_;
 };
 
+template <class ArchTag_, bool ENABLE_SHUFFLE_K_ = false>
+struct MmadPlanarComplexFused : public MmadBase<ArchTag_, false> {
+    static constexpr uint32_t STAGES = 2;
+    static constexpr bool ENABLE_SHUFFLE_K = ENABLE_SHUFFLE_K_;
+};
+
 } // namespace Catlass::Gemm
 
 #endif // CATLASS_GEMM_DISPATCH_POLICY_HPP
