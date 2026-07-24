@@ -43,7 +43,8 @@ public:
     using ElementC = typename BlockMmad::ElementC;
     using LayoutC = typename BlockMmad::LayoutC;
     using ElementBias = typename BlockMmad::ElementBias;
-    using ElementPrologueB = typename BlockMmad::ElementPrologueB;
+    using ElementPrologueB = typename BlockMmad::TileCopy::ElementPrologueB;
+    using LayoutPrologueB = typename BlockMmad::TileCopy::LayoutPrologueB;
     using ElementAccumulator = typename BlockMmad::ElementAccumulator;
     using LayoutTagL1B = typename BlockMmad::LayoutTagL1B;
 
@@ -66,7 +67,7 @@ public:
         GM_ADDR ptrA;
         LayoutA layoutA;
         GM_ADDR ptrB;
-        LayoutB layoutB;
+        LayoutPrologueB layoutPrologueB;
         GM_ADDR ptrMxScaleA;
         LayoutMxScaleA layoutMxScaleA;
         GM_ADDR ptrMxScaleB;
@@ -82,14 +83,15 @@ public:
 
         CATLASS_HOST_DEVICE
         Params(
-            GemmCoord const& problemShape_, GM_ADDR ptrA_, LayoutA layoutA_, GM_ADDR ptrB_, LayoutB layoutB_,
-            GM_ADDR ptrMxScaleA_, LayoutMxScaleA layoutMxScaleA_, GM_ADDR ptrMxScaleB_, LayoutMxScaleB layoutMxScaleB_,
-            GM_ADDR ptrC_, LayoutC layoutC_, GM_ADDR ptrBias_ = nullptr)
+            GemmCoord const& problemShape_, GM_ADDR ptrA_, LayoutA layoutA_, GM_ADDR ptrB_,
+            LayoutPrologueB layoutPrologueB_, GM_ADDR ptrMxScaleA_, LayoutMxScaleA layoutMxScaleA_,
+            GM_ADDR ptrMxScaleB_, LayoutMxScaleB layoutMxScaleB_, GM_ADDR ptrC_, LayoutC layoutC_,
+            GM_ADDR ptrBias_ = nullptr)
             : problemShape(problemShape_),
               ptrA(ptrA_),
               layoutA(layoutA_),
               ptrB(ptrB_),
-              layoutB(layoutB_),
+              layoutPrologueB(layoutPrologueB_),
               ptrMxScaleA(ptrMxScaleA_),
               layoutMxScaleA(layoutMxScaleA_),
               ptrMxScaleB(ptrMxScaleB_),
@@ -105,7 +107,7 @@ public:
         uint8_t* ptrA;
         LayoutA layoutA;
         uint8_t* ptrB;
-        LayoutB layoutB;
+        LayoutPrologueB layoutPrologueB;
         uint8_t* ptrMxScaleA;
         LayoutMxScaleA layoutMxScaleA;
         uint8_t* ptrMxScaleB;
@@ -127,32 +129,25 @@ public:
 
     static Params ToUnderlyingArguments(const Arguments& args, uint8_t* workspace)
     {
-        Params params{args.problemShape,   args.ptrA,        args.layoutA,        args.ptrB,
-                      args.layoutB,        args.ptrMxScaleA, args.layoutMxScaleA, args.ptrMxScaleB,
-                      args.layoutMxScaleB, args.ptrC,        args.layoutC,        args.ptrBias};
+        Params params{args.problemShape,    args.ptrA,        args.layoutA,        args.ptrB,
+                      args.layoutPrologueB, args.ptrMxScaleA, args.layoutMxScaleA, args.ptrMxScaleB,
+                      args.layoutMxScaleB,  args.ptrC,        args.layoutC,        args.ptrBias};
         return params;
     }
 
     // Methods
     CATLASS_DEVICE
-    A8W4MxMatmul(uint32_t l1BufAddrStart = 0)
+    A8W4MxMatmul()
     {
         Arch::Resource<ArchTag> resource;
         if constexpr (tla::detail::isRowMajor<LayoutC>::value) {
             AscendC::SetMMLayoutTransform(true);
         }
-        uint32_t l1Offset = l1BufAddrStart;
-        for (uint32_t i = 0; i < L1B_STAGES; i++) {
-            // Assign L1/L0A/L0B space for each stages
-            l1BTensorList[i] = resource.l1Buf.template GetBufferByByte<ElementB>(l1Offset);
-            l1Offset += L1B_TILE_SIZE;
-            // Assign event ID for each stages
-            l1BEventList[i] = i;
-            // The event id that needs to be set before the loop
-        }
         if ASCEND_IS_AIC {
-            AscendC::CrossCoreSetFlag<AIC_SYNC_AIV_MODE, PIPE_MTE1>(AIV_SYNC_AIC_FLAG);
-            AscendC::CrossCoreSetFlag<AIC_SYNC_AIV_MODE, PIPE_MTE1>(AIC_SYNC_AIV_FLAG);
+            for (uint32_t i = 0; i < L1B_STAGES; i++) {
+                AscendC::CrossCoreSetFlag<AIC_SYNC_AIV_MODE, PIPE_MTE1>(AIC_SYNC_AIV_FLAG + i);
+                AscendC::CrossCoreSetFlag<AIC_SYNC_AIV_MODE, PIPE_MTE1>(AIC_SYNC_AIV_FLAG + FLAG_ID_MAX + i);
+            }
         }
     }
 
@@ -161,7 +156,9 @@ public:
     ~A8W4MxMatmul()
     {
         if ASCEND_IS_AIV {
-            AscendC::CrossCoreWaitFlag<AIC_SYNC_AIV_MODE, PIPE_MTE3>(AIV_SYNC_AIC_FLAG);
+            for (uint32_t i = 0; i < L1B_STAGES; i++) {
+                AscendC::CrossCoreWaitFlag<AIC_SYNC_AIV_MODE, PIPE_MTE3>(AIC_SYNC_AIV_FLAG + i);
+            }
         }
     }
 
@@ -175,8 +172,7 @@ public:
         BlockScheduler matmulBlockScheduler(params.problemShape, MakeCoord(L1_TILE_M, L1_TILE_N));
         uint32_t coreLoops = matmulBlockScheduler.GetCoreLoops();
 
-        Arch::Resource<ArchTag> resource;
-        BlockMmad blockMmad(resource, L1B_TILE_SIZE * L1B_STAGES);
+        BlockMmad blockMmad(resource);
 
         // Represent the full gm
         AscendC::GlobalTensor<ElementA> gmA;
@@ -208,9 +204,6 @@ public:
         auto tensorC = tla::MakeTensor(gmC, params.layoutC, Arch::PositionGM{});
         auto tensorBias = tla::MakeTensor(gmBias, layoutBias, Arch::PositionGM{});
 
-        // make L1 TensorB
-        auto tensorL1B = tla::MakeTensor(l1BTensorList[l1BListId], L1B_LAYOUT, Arch::PositionL1{});
-
         for (uint32_t loopIdx = AscendC::GetBlockIdx(); loopIdx < coreLoops; loopIdx += AscendC::GetBlockNum()) {
             GemmCoord blockCoord = matmulBlockScheduler.GetBlockCoord(loopIdx);
             GemmCoord actualBlockShape = matmulBlockScheduler.GetActualBlockShape(blockCoord);
@@ -234,13 +227,12 @@ public:
 
             // Compute block-scoped matrix multiply-add
             if constexpr (std::is_void_v<ElementBias>) {
-                blockMmad(
-                    tensorBlockA, tensorBlockC, actualBlockShape, tensorL1B, tensorBlockMxScaleA, tensorBlockMxScaleB);
+                blockMmad(tensorBlockA, tensorBlockC, actualBlockShape, tensorBlockMxScaleA, tensorBlockMxScaleB);
             } else {
                 auto tensorBlockBias = GetTile(
                     tensorBias, tla::MakeCoord(blockCoord.n() * L1_TILE_N), tla::MakeShape(actualBlockShape.n()));
                 blockMmad(
-                    tensorBlockA, tensorBlockC, actualBlockShape, tensorL1B, tensorBlockMxScaleA, tensorBlockMxScaleB,
+                    tensorBlockA, tensorBlockC, actualBlockShape, tensorBlockMxScaleA, tensorBlockMxScaleB,
                     tensorBlockBias);
             }
         }
@@ -250,7 +242,7 @@ public:
     CATLASS_DEVICE void operator()<AscendC::AIV>(Params const& params)
     {
         using PrologueParams = typename BlockPrologue::Params;
-        PrologueParams prologueParams{L1TileShape{}, params.layoutB, L1_TILE_N, L1_TILE_K, false};
+        PrologueParams prologueParams{L1TileShape{}, params.layoutPrologueB, false, resource};
 
         BlockPrologue blockPrologue(prologueParams);
 
@@ -258,14 +250,11 @@ public:
         AscendC::GlobalTensor<ElementPrologueB> gmB;
         gmB.SetGlobalBuffer((__gm__ ElementPrologueB*)params.ptrB);
 
-        auto tensorGmB = tla::MakeTensor(gmB, params.layoutB, Arch::PositionGM{});
+        auto tensorGmB = tla::MakeTensor(gmB, params.layoutPrologueB, Arch::PositionGM{});
 
         BlockScheduler matmulBlockScheduler(params.problemShape, MakeCoord(L1_TILE_M, L1_TILE_N));
         // veccore
         uint32_t coreLoops = matmulBlockScheduler.GetCoreLoops();
-
-        // make L1 TensorB
-        auto tensorL1B = tla::MakeTensor(l1BTensorList[l1BListId], L1B_LAYOUT, Arch::PositionL1{});
 
         for (uint32_t loopIdx = AscendC::GetBlockIdx() / AscendC::GetSubBlockNum(); loopIdx < coreLoops;
              loopIdx += AscendC::GetBlockNum()) {
@@ -274,20 +263,16 @@ public:
             auto blockTensorB = GetTile(
                 tensorGmB, tla::MakeCoord(blockCoord.k() * L1_TILE_K, blockCoord.n() * L1_TILE_N),
                 tla::MakeShape(actualBlockShape.k(), actualBlockShape.n()));
-            blockPrologue(blockTensorB, tensorL1B, actualBlockShape, prologueParams);
+            blockPrologue(blockTensorB, actualBlockShape, prologueParams);
         }
     }
 
-    // L1B TensorList
-    AscendC::LocalTensor<ElementB> l1BTensorList[L1B_STAGES];
-    int32_t l1BEventList[L1B_STAGES];
-
-    // The id of current stage
-    uint32_t l1BListId{0};
+    Arch::Resource<ArchTag> resource;
 
     constexpr static uint8_t AIC_SYNC_AIV_MODE = 4;
-    static constexpr uint16_t AIV_SYNC_AIC_FLAG = 0;
-    static constexpr uint16_t AIC_SYNC_AIV_FLAG = 16;
+    constexpr static uint16_t AIV_SYNC_AIC_FLAG = 6;
+    constexpr static uint16_t AIC_SYNC_AIV_FLAG = 8;
+    constexpr static uint16_t FLAG_ID_MAX = 16;
 
     // L1BLayout
     static constexpr auto L1B_LAYOUT =

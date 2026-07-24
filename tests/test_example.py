@@ -442,6 +442,37 @@ class CatlassExampleTest(unittest.TestCase):
         "--datapath", os.path.join(CMAKE_EXAMPLES_PATH, "70_ascend950_flash_attention_chunk_prefill", "data")]
         self.run_case("70_ascend950_flash_attention_chunk_prefill", case_cpp)
 
+    @only_on_3510
+    def test_74_ascend950_weight_quant_a8w4_grouped_mx_matmul(self):
+        case_py = [
+            "expect_m_per_group",
+            "48",
+            "64",
+            "3072",
+            "2048",
+            "4096",
+            "1",
+        ]
+        ret = subprocess.run(
+            [
+                "python3",
+                os.path.join(
+                    CMAKE_EXAMPLES_PATH,
+                    "74_ascend950_weight_quant_a8w4_grouped_mx_matmul",
+                    "gen_data.py",
+                ),
+            ]
+            + case_py,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self._ret_check(ret)
+
+        case_cpp = ["48", "3072", "2048", "4096", "0"]
+        self.run_case(
+            "74_ascend950_weight_quant_a8w4_grouped_mx_matmul", case_cpp
+        )
+
 normal_cases_2201 = [
     "00_basic_matmul 256 512 1024 0",
     "01_batched_matmul 5 256 512 1024 0",

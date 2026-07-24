@@ -46,6 +46,7 @@
 #include "template/group_gemm.h"
 #include "template/mx_grouped_matmul_swiglu_mx_quant.h"
 #include "template/a8w4_mx_matmul.h"
+#include "template/a8w4_grouped_mx_matmul.h"
 #include "template/svd_quant_matmul.h"
 #include "template/conv_bias.h"
 
@@ -349,6 +350,10 @@ REGISTER_TORCH_FUNC(ascend950_multi_core_splitk_matmul);
 using Ascend950A8W4MxMatmulOp = A8W4MxMatmulLike<CatlassKernel::Ascend950A8W4MxMatmul>;
 static auto& ascend950_a8w4_mx_matmul = Ascend950A8W4MxMatmulOp::Run;
 REGISTER_TORCH_FUNC(ascend950_a8w4_mx_matmul);
+
+using Ascend950A8W4GroupedMxMatmulOp = A8W4GroupedMxMatmulLike<CatlassKernel::Ascend950A8W4GroupedMxMatmul>;
+static auto& ascend950_a8w4_grouped_mx_matmul = Ascend950A8W4GroupedMxMatmulOp::Run;
+REGISTER_TORCH_FUNC(ascend950_a8w4_grouped_mx_matmul);
 
 using Ascend950Fp8MxGroupedMatmulSliceMSwigluMxQuantOp =
     GroupedMxSwigluMxQuantMatmulLike<CatlassKernel::Ascend950Fp8MxGroupedMatmulSliceMSwigluMxQuant>;

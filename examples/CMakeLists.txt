@@ -169,6 +169,7 @@ set(EXAMPLE_ASCEND950
     69_ascend950_tail_multi_core_splitk_matmul
     70_ascend950_flash_attention_chunk_prefill
     73_ascend950_matmul_full_loadA
+    74_ascend950_weight_quant_a8w4_grouped_mx_matmul
     80_grouped_matmul_slice_m_gelu
 )
 

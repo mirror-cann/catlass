@@ -493,6 +493,16 @@ void Ascend950MatmulFullLoadA(
     const uint32_t blockNum, aclrtStream stream, const TParams& tParams, const MatmulParams& params);
 
 /**
+ * @brief Reserved JIT interface for example 74_ascend950_weight_quant_a8w4_grouped_mx_matmul.
+ *
+ * Grouped MX A8W4 matmul: C = (MxScaleA * A_fp8) @ (MxScaleB * B_fp4) per group.
+ * B is the packed FP4 prologue (int8 bytes, Weight4BitnZ layout). Output is FP32.
+ * ``params.batch`` carries the group (expert) count; ``inputAddr[2]`` is the group list.
+ */
+void Ascend950A8W4GroupedMxMatmul(
+    const uint32_t blockNum, aclrtStream stream, const TParams& tParams, const GroupedMatmulParams& params);
+
+/**
  * @brief Reserved JIT interface for example 102_dynamic_optimized_matmul.
  */
 void DynamicOptimizedMatmul(

@@ -527,8 +527,8 @@ template <
     class LayoutMxScaleB_, class ElementC_, class LayoutTagC, class ElementBias = void, bool ReluEnable_ = false,
     ScaleGranularity DEQUANT_GRANULARITY = ScaleGranularity::NO_QUANT, class L0CCopyMode = CopyToGM>
 struct PackedMxA8W4TileCopyTla : public PackedTileCopyTla<
-                                     ArchTag, ElementA_, LayoutTagA, ElementB_, LayoutTagPrologueB, ElementC_,
-                                     LayoutTagC, ElementBias, ReluEnable_, DEQUANT_GRANULARITY, L0CCopyMode> {
+                                     ArchTag, ElementA_, LayoutTagA, ElementB_, LayoutTagB, ElementC_, LayoutTagC,
+                                     ElementBias, ReluEnable_, DEQUANT_GRANULARITY, L0CCopyMode> {
     using ElementMxScaleA = ElementMxScaleA_;
     using ElementMxScaleB = ElementMxScaleB_;
 
@@ -540,7 +540,8 @@ struct PackedMxA8W4TileCopyTla : public PackedTileCopyTla<
     using LayoutL1MxScaleA = detail::TagToLayout_t<ElementMxScaleA, LayoutTagL1MxScaleA>;
     using LayoutL1MxScaleB = detail::TagToLayout_t<ElementMxScaleB, LayoutTagL1MxScaleB>;
 
-    using LayoutB = detail::TagToLayout_t<ElementPrologueB_, LayoutTagPrologueB>;
+    using ElementPrologueB = ElementPrologueB_;
+    using LayoutPrologueB = detail::TagToLayout_t<ElementPrologueB, LayoutTagPrologueB>;
     using LayoutTagL1B = typename helper::L1BTypeSelector<Gemm::GemmType<ElementB_, LayoutTagB>>::L1BType::Layout;
     using LayoutTagL0B = layout::nZ;
 

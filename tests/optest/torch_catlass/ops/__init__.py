@@ -47,8 +47,16 @@ from .ascend950_mx_matmul import (  # example 53, 54, 58, 59, 63
     ascend950_fp8_mx_batch_matmul,
     ascend950_fp8_mx_matmul_aswt,
 )
-from .ascend950_quant_matmul_per_group_per_block_tla import (
-    ascend950_quant_matmul_per_group_per_block_tla,  # example 51
+from .ascend950_a8w4_grouped_mx_matmul import ascend950_a8w4_grouped_mx_matmul  # example 74
+from .svd_quant_matmul import ascend950_svd_quant_matmul  # example 61
+from .broadcast_matmul_perblock_quant import broadcast_matmul_perblock_quant  # example 62
+from .ascend950_matmul_evg import EvgPostprocessMode, ascend950_matmul_evg  # example 64
+from .ascend950_matmul_full_loadA import ascend950_matmul_full_loadA  # example 73
+from .ascend950_batched_matmul import ascend950_batched_matmul  # example 67
+from .ascend950_basic_matmul_gemv import ascend950_basic_matmul_gemv  # example 50
+from .ascend950_quant_matmul_per_group_per_block_tla import ascend950_quant_matmul_per_group_per_block_tla  # example 51
+from .ascend950_fp8_mx_grouped_matmul_slice_m_swiglu_mx_quant import (
+    ascend950_fp8_mx_grouped_matmul_slice_m_swiglu_mx_quant,  # example 65
 )
 from .ascend950_streamk_matmul import ascend950_streamk_matmul  # example 66
 from .basic_conv2d import basic_conv2d  # example 33
@@ -159,17 +167,18 @@ __all__ = [
     "ascend950_fp8_mx_matmul_aswt",  # example 53
     "ascend950_fp4_mx_matmul_aswt",  # example 54
     "ascend950_mx_grouped_matmul_slice_m",  # example 55
-    "ascend950_fp8_mx_batch_matmul",  # example 58
-    "ascend950_a8w4_mx_matmul",  # example 59
-    "ascend950_grouped_matmul_slice_m",  # example 60
-    "broadcast_matmul_perblock_quant",  # example 62
-    "ascend950_dual_level_quant_mx_batch_matmul",  # example 63
-    "ascend950_svd_quant_matmul",  # example 61
-    "ascend950_matmul_evg",  # example 64
-    "EvgPostprocessMode",  # example 64
-    "ascend950_batched_matmul",  # example 67
-    "ascend950_matmul_fixpipe_opti",  # example 46
-    "ascend950_basic_matmul_gemv",  # example 50
+    "ascend950_fp8_mx_batch_matmul",      # example 58
+    "ascend950_a8w4_mx_matmul",           # example 59
+    "ascend950_a8w4_grouped_mx_matmul",   # example 74
+    "ascend950_grouped_matmul_slice_m",   # example 60
+    "broadcast_matmul_perblock_quant",    # example 62
+    "ascend950_dual_level_quant_mx_batch_matmul", # example 63
+    "ascend950_svd_quant_matmul",         # example 61
+    "ascend950_matmul_evg",               # example 64
+    "EvgPostprocessMode",                 # example 64
+    "ascend950_batched_matmul",           # example 67
+    "ascend950_matmul_fixpipe_opti",      # example 46
+    "ascend950_basic_matmul_gemv",        # example 50
     "ascend950_quant_matmul_per_group_per_block_tla",  # example 51
     "ascend950_matmul_full_dequant",  # example 57
     "ascend950_fp8_mx_grouped_matmul_slice_m_swiglu_mx_quant",  # example 65

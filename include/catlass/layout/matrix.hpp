@@ -1744,6 +1744,174 @@ private:
     /// Stride data member
     Stride stride_;
 };
+
+/// Mapping function for nZ matrices which is col-major inside fractal and row-major between fractal
+struct Weight4BitnZ {
+public:
+    /// Logical rank of tensor
+    static constexpr int RANK = 4;
+
+    /// Index type used for coordinates
+    using Index = uint32_t;
+
+    /// Long index type used for offsets
+    using LongIndex = int64_t;
+
+    /// Logical rank of orgshape
+    static constexpr int ORG_SHAPE_RANK = 2;
+
+    /// Logical coordinate
+    using OrgShape = Coord<ORG_SHAPE_RANK, Index>;
+
+    /// Logical coordinate
+    using Shape = Coord<RANK, Index>;
+
+    /// Stride vector
+    using Stride = Coord<RANK, LongIndex>;
+
+public:
+    // Methods
+
+    /// Constructor
+    CATLASS_HOST_DEVICE constexpr Weight4BitnZ(
+        Index orgRows = 0,                 /// Number of rows of origin matrices
+        Index orgCols = 0,                 /// Number of cols of origin matrices
+        Index rowsInFractal = 0,           /// Number of rows inside the fractal
+        Index rowsByFractal = 0,           /// number of rows by the fractal
+        Index colsInFractal = 0,           /// number of cols inside the fractal
+        Index colsByFractal = 0,           /// number of cols by the fractal
+        LongIndex strideRowsInFractal = 0, /// number of elements between adjacent rows inside the fractal
+        LongIndex strideRowsByFractal = 0, /// number of elements between adjacent fractal rows
+        LongIndex strideColsInFractal = 0, /// number of elements between adjacent cols inside the fractal
+        LongIndex strideColsByFractal = 0) /// number of elements between adjacent fractal cols
+        : orgShape_(MakeCoord(orgRows, orgCols)),
+          shape_(MakeCoord(rowsInFractal, rowsByFractal, colsInFractal, colsByFractal)),
+          stride_(MakeCoord(strideRowsInFractal, strideRowsByFractal, strideColsInFractal, strideColsByFractal))
+    {}
+
+    /// Ctor
+    CATLASS_HOST_DEVICE constexpr Weight4BitnZ(OrgShape orgShape, Shape shape, Stride stride)
+        : orgShape_(orgShape), shape_(shape), stride_(stride)
+    {}
+
+    /// Make the layout of a coordinate (row, column)
+    template <class Element>
+    CATLASS_HOST_DEVICE constexpr static Weight4BitnZ MakeLayout(Index orgRows, Index orgCols)
+    {
+        constexpr uint32_t ELE_NUM_PER_C0 = 16;
+        constexpr uint32_t ELE_NUM_PER_FRACTAL = 512;
+        Index rowsRound = RoundUp<ELE_NUM_PER_C0>(orgRows);
+        Index colsRound = RoundUp<C0_NUM_PER_FRACTAL>(orgCols);
+        return Weight4BitnZ(
+            orgRows, orgCols, ELE_NUM_PER_C0, rowsRound / ELE_NUM_PER_C0, C0_NUM_PER_FRACTAL,
+            colsRound / C0_NUM_PER_FRACTAL, 1, colsRound * ELE_NUM_PER_C0, ELE_NUM_PER_C0, ELE_NUM_PER_FRACTAL);
+    }
+
+    /// Returns the offset of a coordinate in linear memory.
+    /// Assumes coordinate has convention (row, column)
+    CATLASS_HOST_DEVICE
+    LongIndex GetOffset(MatrixCoord const& coord) const
+    {
+        return LongIndex(coord.row()) / shape_[0] * stride_[1] + LongIndex(coord.column()) / shape_[2] * stride_[3] +
+               (LongIndex(coord.row()) % shape_[0]) * stride_[0] + (LongIndex(coord.column()) % shape_[2]) * stride_[2];
+    }
+
+    /// Returns the layout of a tile.
+    CATLASS_HOST_DEVICE
+    Weight4BitnZ GetTileLayout(MatrixCoord const& tileOriShape) const
+    {
+        auto tileShape = MakeCoord(
+            shape(0), CeilDiv(tileOriShape.row(), shape(0)), shape(2), CeilDiv(tileOriShape.column(), shape(2)));
+        return Weight4BitnZ(tileOriShape, tileShape, stride());
+    }
+
+    /// Returns the origin shape of the layout
+    CATLASS_HOST_DEVICE
+    typename OrgShape::Index orgShape(int idx) const
+    {
+        return orgShape_[idx];
+    }
+
+    /// Returns the origin shape of the layout
+    CATLASS_HOST_DEVICE
+    typename OrgShape::Index& orgShape(int idx)
+    {
+        return orgShape_[idx];
+    }
+
+    /// Returns the shape of the layout
+    CATLASS_HOST_DEVICE
+    Shape shape() const
+    {
+        return shape_;
+    }
+
+    /// Returns the shape of the layout
+    CATLASS_HOST_DEVICE
+    Shape& shape()
+    {
+        return shape_;
+    }
+
+    /// Returns the shape of the layout
+    CATLASS_HOST_DEVICE
+    typename Shape::Index shape(int idx) const
+    {
+        return shape_[idx];
+    }
+
+    /// Returns the shape of the layout
+    CATLASS_HOST_DEVICE
+    typename Shape::Index& shape(int idx)
+    {
+        return shape_[idx];
+    }
+
+    /// Returns the stride of the layout
+    CATLASS_HOST_DEVICE
+    Stride stride() const
+    {
+        return stride_;
+    }
+
+    /// Returns the stride of the layout
+    CATLASS_HOST_DEVICE
+    Stride& stride()
+    {
+        return stride_;
+    }
+
+    /// Returns the stride of the layout
+    CATLASS_HOST_DEVICE
+    typename Stride::Index stride(int idx) const
+    {
+        return stride_[idx];
+    }
+
+    /// Returns the stride of the layout
+    CATLASS_HOST_DEVICE
+    typename Stride::Index& stride(int idx)
+    {
+        return stride_[idx];
+    }
+
+    /// Returns the length of the layout
+    CATLASS_HOST_DEVICE
+    LongIndex Capacity() const
+    {
+        return static_cast<LongIndex>(stride_[1]) * shape_[1];
+    }
+
+private:
+    /// Origin Shape data member
+    OrgShape orgShape_;
+
+    /// Shape data member
+    Shape shape_;
+
+    /// Stride data member
+    Stride stride_;
+};
 } // namespace Catlass::layout
 
 #endif // CATLASS_LAYOUT_MATRIX_HPP

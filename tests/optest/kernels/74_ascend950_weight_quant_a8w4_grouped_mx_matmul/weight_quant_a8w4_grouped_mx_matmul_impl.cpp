@@ -4,8 +4,8 @@
  * This file is a part of the CANN Open Software.
  * Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING
- * BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See LICENSE in the root of
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See LICENSE in the root of
  * the software repository for the full text of the License.
  */
 
@@ -19,7 +19,7 @@ using std::size_t;
 
 #include <kernel_operator.h>
 
-#include "catlass/gemm/kernel/a8w4_mx_matmul.hpp"
+#include "catlass/gemm/kernel/weight_quant_a8w4_grouped_mx_matmul.hpp"
 #include "catlass/arch/arch.hpp"
 #include "catlass/catlass.hpp"
 #include "catlass/gemm/block/block_mmad.hpp"
@@ -46,40 +46,46 @@ using std::size_t;
 #define CATLASS_JIT_LAYOUT_A RowMajor
 #endif
 #ifndef CATLASS_JIT_LAYOUT_B
-#define CATLASS_JIT_LAYOUT_B ColumnMajor
+#define CATLASS_JIT_LAYOUT_B Weight4BitnZ
 #endif
-
-#define CATLASS_JIT_ELEMENT_C float
 
 using ElementA = CATLASS_JIT_ELEMENT_A;
 using ElementPrologueB = CATLASS_JIT_ELEMENT_B;
 using ElementB = float8_e4m3_t;
 using ElementMxScale = CATLASS_JIT_ELEMENT_MX_SCALE;
-using ElementC = CATLASS_JIT_ELEMENT_C;
+// The accumulator type is fixed because the JIT output dtype describes the
+// tensor interface, not the internal workspace representation.
+using ElementC = float;
 using ElementBias = void;
+using ElementGroupList = int64_t;
 
 using LayoutTagA = Catlass::layout::CATLASS_JIT_LAYOUT_A;
 using LayoutTagPrologueB = Catlass::layout::CATLASS_JIT_LAYOUT_B;
+using LayoutTagMxScaleB = Catlass::layout::ColumnMajor;
 using LayoutTagC = Catlass::layout::RowMajor;
 using LayoutTagB = Catlass::layout::nZ;
 
 using ArchTag = Catlass::Arch::Ascend950;
-constexpr bool enableUnitFlag = false;
+constexpr bool enableUnitFlag = true;
+static constexpr uint32_t L1_SCALE_FACTOR_K = 16;
+static constexpr uint32_t L1A_STAGES = 2;
+static constexpr uint32_t L1B_STAGES = 2;
+static constexpr uint32_t L0A_STAGES = 2;
+static constexpr uint32_t L0B_STAGES = 2;
+static constexpr uint32_t L0C_STAGES = 1;
 
-using L1TileShape = tla::Shape<tla::Int<128>, tla::Int<128>, tla::Int<128>>;
-using L0TileShape = tla::Shape<tla::Int<128>, tla::Int<128>, tla::Int<128>>;
+using L1TileShape = tla::Shape<tla::Int<256>, tla::Int<256>, tla::Int<256>>;
+using L0TileShape = tla::Shape<tla::Int<256>, tla::Int<256>, tla::Int<128>>;
 
 using PrologueSrcType = Catlass::Gemm::GemmType<ElementPrologueB, LayoutTagPrologueB>;
 using PrologueDstType = Catlass::Gemm::GemmType<ElementB, LayoutTagB>;
 
-using DispatchPolicyMmad = Catlass::Gemm::MmadA8W4Mx<ArchTag, enableUnitFlag>;
-using DispatchPolicyPrologue = Catlass::Gemm::MxA8W4Prologue<ArchTag>;
+using DispatchPolicyMmad = Catlass::Gemm::MmadA8W4Mx<
+    ArchTag, enableUnitFlag, false, L1_SCALE_FACTOR_K,
+    L0C_STAGES, L1A_STAGES, L1B_STAGES, L0A_STAGES, L0B_STAGES>;
+using DispatchPolicyPrologue = Catlass::Gemm::MxA8W4Prologue<ArchTag, L1B_STAGES>;
 
-#ifndef CATLASS_JIT_BLOCK_SCHEDULER
-#define CATLASS_JIT_BLOCK_SCHEDULER 30
-#endif
-using BlockScheduler = typename Catlass::Gemm::Block::GemmIdentityBlockSwizzle<
-    (CATLASS_JIT_BLOCK_SCHEDULER / 10), (CATLASS_JIT_BLOCK_SCHEDULER % 10)>;
+using BlockScheduler = typename Catlass::Gemm::Block::GemmIdentityBlockSwizzle<3, 0>;
 
 using BlockEpilogue = void;
 
@@ -88,20 +94,22 @@ extern "C" void run(uint32_t blockNum, aclrtStream stream, const CatlassKernel::
     uint32_t m = params->m;
     uint32_t n = params->n;
     uint32_t k = params->k;
+    uint32_t problemCount = params->batch;
     uint32_t mxScaleK = CeilDiv<Catlass::MX_SCALE_GROUP_NUM>(k);
 
     Catlass::GemmCoord problemShape{m, n, k};
 
     uint8_t* deviceA = params->inputAddr[0];
     uint8_t* devicePrologueB = params->inputAddr[1];
-    uint8_t* deviceMxScaleA = params->inputAddr[2];
-    uint8_t* deviceMxScaleB = params->inputAddr[3];
+    uint8_t* deviceGroupList = params->inputAddr[2];
+    uint8_t* deviceMxScaleA = params->inputAddr[3];
+    uint8_t* deviceMxScaleB = params->inputAddr[4];
     uint8_t* deviceC = params->outputAddr[0];
 
     auto layoutA = tla::MakeLayout<ElementA, LayoutTagA>(m, k);
     auto layoutPrologueB = tla::MakeLayout<ElementPrologueB, LayoutTagPrologueB>(k, n);
     auto layoutMxScaleA = tla::MakeMxScaleLayout<ElementMxScale, LayoutTagA, false>(m, mxScaleK);
-    auto layoutMxScaleB = tla::MakeMxScaleLayout<ElementMxScale, LayoutTagPrologueB, true>(mxScaleK, n);
+    auto layoutMxScaleB = tla::MakeMxScaleLayout<ElementMxScale, LayoutTagMxScaleB, true>(mxScaleK, n);
     auto layoutC = tla::MakeLayout<ElementC, LayoutTagC>(m, n);
 
     using TileCopy = Catlass::Gemm::Tile::PackedMxA8W4TileCopyTla<
@@ -115,11 +123,13 @@ extern "C" void run(uint32_t blockNum, aclrtStream stream, const CatlassKernel::
     using BlockPrologue = Catlass::Gemm::Block::BlockPrologue<
         DispatchPolicyPrologue, PrologueSrcType, PrologueDstType, L1TileShape, TileCopy>;
 
-    using MatmulKernel = Catlass::Gemm::Kernel::A8W4MxMatmul<BlockMmad, BlockPrologue, BlockEpilogue, BlockScheduler>;
+    using MatmulKernel = Catlass::Gemm::Kernel::A8W4GroupedMxMatmul<
+        BlockMmad, BlockPrologue, BlockEpilogue, BlockScheduler, ElementGroupList>;
 
     typename MatmulKernel::Arguments arguments{
-        problemShape, deviceA, layoutA, devicePrologueB, layoutPrologueB, deviceMxScaleA, layoutMxScaleA,
-        deviceMxScaleB, layoutMxScaleB, deviceC, layoutC, nullptr};
+        problemShape, problemCount, deviceGroupList,
+        deviceA, layoutA, devicePrologueB, layoutPrologueB, deviceMxScaleA,
+        layoutMxScaleA, deviceMxScaleB, layoutMxScaleB, deviceC, layoutC, nullptr};
 
     uint64_t taskNum64 = static_cast<uint64_t>(CeilDiv(m, tla::get<0>(L1TileShape{}))) *
                          static_cast<uint64_t>(CeilDiv(n, tla::get<1>(L1TileShape{})));

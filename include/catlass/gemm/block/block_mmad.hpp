@@ -71,7 +71,7 @@ struct BlockMmadTla {
 
 template <
     class DispatchPolicy, class L1TileShape, class L0TileShape, class ElementA, class ElementB, class ElementC,
-    class ElementPrologueB, class ElementBias = void,
+    class ElementBias = void,
     class TileCopy = Gemm::Tile::PackedTileCopyTla<
         typename DispatchPolicy::ArchTag, ElementA, layout::zN, ElementB, layout::zN, ElementC, layout::zN,
         ElementBias>,

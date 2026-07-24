@@ -522,7 +522,8 @@ CATLASS_HOST_DEVICE constexpr auto MakeLayout(T const& rows, U const& cols)
             std::is_same_v<LayoutTag, Catlass::layout::ColumnMajor> ||
             std::is_same_v<LayoutTag, Catlass::layout::VectorLayout> ||
             std::is_same_v<LayoutTag, Catlass::layout::zN> || std::is_same_v<LayoutTag, Catlass::layout::nZ> ||
-            std::is_same_v<LayoutTag, Catlass::layout::zZ> || std::is_same_v<LayoutTag, Catlass::layout::L0C>,
+            std::is_same_v<LayoutTag, Catlass::layout::zZ> || std::is_same_v<LayoutTag, Catlass::layout::L0C> ||
+            std::is_same_v<LayoutTag, Catlass::layout::Weight4BitnZ>,
         "Unsupported LayoutTag for MakeLayoutFromTag, only support Catlass::layout::RowMajor or"
         "Catlass::layout::ColumnMajor or Catlass::layout::zN or Catlass::layout::nZ or Catlass::layout::zZ or "
         "Catlass::layout::L0C");
@@ -580,6 +581,17 @@ CATLASS_HOST_DEVICE constexpr auto MakeLayout(T const& rows, U const& cols)
                 MakeStride(
                     Int<1>{},
                     RoundUp((int64_t)rows, Int<Catlass::C0_NUM_PER_FRACTAL>{}) * Catlass::C0_NUM_PER_FRACTAL)),
+            MakeShape(rows, cols));
+    } else if constexpr (std::is_same_v<LayoutTag, Catlass::layout::Weight4BitnZ>) {
+        constexpr uint32_t ELE_NUM_PER_C0 = 32;
+        constexpr uint32_t ELE_NUM_PER_FRACTAL = 512;
+        return MakeLayout(
+            MakeShape(
+                MakeShape(Int<ELE_NUM_PER_C0>{}, CeilDiv(rows, Int<ELE_NUM_PER_C0>{})),
+                MakeShape(Int<Catlass::C0_NUM_PER_FRACTAL>{}, CeilDiv(cols, Int<Catlass::C0_NUM_PER_FRACTAL>{}))),
+            MakeStride(
+                MakeStride(Int<1>{}, RoundUp((int64_t)cols, Int<Catlass::C0_NUM_PER_FRACTAL>{}) * ELE_NUM_PER_C0),
+                MakeStride(Int<ELE_NUM_PER_C0>{}, Int<ELE_NUM_PER_FRACTAL>{})),
             MakeShape(rows, cols));
     } else {
         return MakeLayout(

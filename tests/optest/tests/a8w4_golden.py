@@ -50,10 +50,9 @@ def _case_random_seed(*values) -> int:
     return seed
 
 
-def _set_case_random_seed(*values) -> int:
+def _set_case_random_seed(*values) -> None:
     seed = _case_random_seed(*values)
     torch.manual_seed(seed)
-    return seed
 
 
 def _build_e4m3_lut() -> torch.Tensor:
@@ -292,3 +291,108 @@ def compare_a8w4_result(result: torch.Tensor, expected: torch.Tensor, k: int) ->
     threshold = rtol * torch.clamp(expected_cpu.abs(), min=1.0)
     max_diff = diff.max().item()
     return bool((diff <= threshold).all()), max_diff
+
+
+def _trans_nd2nz(input_data: torch.Tensor) -> torch.Tensor:
+    """Transform (G, N_pad, K_pad) int8 indices to nZ fractal (G, K_blk, N_blk, 16, 32)."""
+    g, n_pad, k_pad = input_data.shape
+    return input_data.reshape(g, n_pad // 16, 16, k_pad // 32, 32).permute(0, 3, 1, 2, 4)
+
+
+def prepare_a8w4_grouped_mx_inputs(
+    group_sizes, n: int, k: int, device: str = "npu", trans_a: int = 0, trans_b: int = 1
+):
+    """Build grouped A8W4 MX inputs (Weight4BitnZ B layout) for example 74.
+
+    Mirrors ``examples/74_ascend950_weight_quant_a8w4_grouped_mx_matmul/gen_data.py``
+    with ``isNz=1`` (the default nZ prologue layout).
+
+    Returns:
+        (a_fp8, b_int8, group_list, a_scale, b_scale, expected) where:
+        - a_fp8: (M, K) float8_e4m3fn, M = sum(group_sizes), shared across groups.
+        - b_int8: flat int8 packed FP4 bytes in Weight4BitnZ fractal layout.
+        - group_list: (G,) int64 non-cumsum group sizes.
+        - a_scale: (M, mxScaleAlignedK/2, 2) float8_e8m0fnu.
+        - b_scale: (G, N, mxScaleAlignedK/2, 2) float8_e8m0fnu.
+        - expected: (M, N) float32 dequant reference.
+    """
+    group_sizes = tuple(int(s) for s in group_sizes)
+    if not group_sizes:
+        raise ValueError("group_sizes must not be empty")
+    if any(s <= 0 for s in group_sizes):
+        raise ValueError(f"group_sizes must be positive, got {group_sizes}")
+    m = sum(group_sizes)
+    g = len(group_sizes)
+    _set_case_random_seed(74, m, n, k, trans_a, trans_b)
+
+    # ── A: shared, fp8 e4m3, quantize along K (axis=1) ──
+    a_fp8, a_scale_raw, a_deq = _gen_data_fp8_e4m3(m, k, 1)
+    a_scale = a_scale_raw.reshape(a_scale_raw.shape[0], a_scale_raw.shape[1] // 2, 2).contiguous()
+    if trans_a == 1:
+        a_scale = a_scale.permute(1, 0, 2).contiguous()
+
+    # ── B: per group, fp4 e2m1, quantize along K (axis=0), nZ layout ──
+    b_indices_list = []
+    b_scale_list = []
+    b_deq_list = []
+    for _ in range(g):
+        matrix = torch.randn((k, n), dtype=torch.float32)
+        quantized_vals, scale, dequantized = _quantize_fp4(matrix, "E2M1", axis=0)
+        if trans_b == 1:
+            quantized_vals = quantized_vals.t().contiguous()
+        _, fp4_indices = _quantize_to_fp4_lut(quantized_vals, "E2M1")
+        b_indices_list.append(fp4_indices)        # (N, K) or (K, N), uint8
+        b_scale_list.append(scale.to(torch.float8_e8m0fnu))
+        b_deq_list.append(dequantized)            # (K, N)
+
+    b_indices_stacked = torch.stack(b_indices_list, dim=0)   # (G, N, K) when trans_b=1
+
+    # Pad K to 32, N to 16 for the Weight4BitnZ fractal (32, 16).
+    pad_k = (32 - k % 32) % 32
+    pad_n = (16 - n % 16) % 16
+    if pad_k > 0 or pad_n > 0:
+        b_indices_stacked = torch.nn.functional.pad(b_indices_stacked, (0, pad_k, 0, pad_n), "constant", 0)
+
+    n_pad = n + pad_n
+    k_pad = k + pad_k
+    b_quant_nz = _trans_nd2nz(b_indices_stacked)           # (G, k_pad//32, n_pad//16, 16, 32)
+    b_quant_flat = b_quant_nz.reshape(-1, 32)              # (total_rows, 32)
+    b_packed = _pack_fp4_nibbles(b_quant_flat)             # (total_rows, 16) bytes
+    b_int8 = _clone_int8_storage(b_packed.flatten())
+
+    # ── B scales: reshape + permute to (G, N, mxScaleAlignedK/2, 2) ──
+    b_scale_stacked = torch.stack(b_scale_list, dim=0)     # (G, num_blocks_padded, N)
+    b_scale_processed_list = []
+    for i in range(g):
+        scale = b_scale_stacked[i]                         # (num_blocks_padded, N)
+        scale = scale.reshape(scale.shape[0] // 2, 2, scale.shape[1])
+        if trans_b == 1:
+            scale = scale.permute(2, 0, 1).contiguous()    # (N, num_blocks_padded/2, 2)
+        else:
+            scale = scale.permute(0, 2, 1).contiguous()    # (num_blocks_padded/2, N, 2)
+        b_scale_processed_list.append(scale)
+    b_scale_processed = torch.stack(b_scale_processed_list, dim=0).contiguous()
+
+    # ── Group list ──
+    group_list = torch.tensor(group_sizes, dtype=torch.int64)
+
+    # ── Expected: per-group dequant matmul concatenated along M ──
+    c_fp32_list = []
+    m_offset = 0
+    for i, group_m in enumerate(group_sizes):
+        if group_m == 0:
+            continue
+        a_group = a_deq[m_offset:m_offset + group_m]       # (group_m, K)
+        b_group = b_deq_list[i]                             # (K, N)
+        c_fp32_list.append(a_group @ b_group)
+        m_offset += group_m
+    expected = torch.cat(c_fp32_list, dim=0)                # (M, N)
+
+    if device == "npu":
+        a_fp8 = a_fp8.npu()
+        b_int8 = b_int8.npu()
+        group_list = group_list.npu()
+        a_scale = a_scale.npu()
+        b_scale_processed = b_scale_processed.npu()
+
+    return a_fp8, b_int8, group_list, a_scale, b_scale_processed, expected

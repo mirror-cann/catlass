@@ -13,7 +13,7 @@
 #define K_MAX_SHAPE_DIM 0
 #endif
 
-#include "catlass/gemm/kernel/a8w4_mx_matmul.hpp"
+#include "catlass/gemm/kernel/weight_quant_a8w4_grouped_mx_matmul.hpp"
 
 #include "catlass/arch/arch.hpp"
 #include "catlass/catlass.hpp"
@@ -32,10 +32,10 @@
 using namespace Catlass;
 using namespace tla;
 
-using Options = GemmOptions;
+using Options = GroupedGemmOptions;
 
 // Default data root when running from build output (e.g. output/bin), aligned with gen_data.py (WORKSPACE/data).
-static const std::string kDataRoot = "./examples/59_ascend950_a8w4_mx_matmul/data";
+static const std::string kDataRoot = "./examples/74_ascend950_weight_quant_a8w4_grouped_mx_matmul/data";
 
 static void Run(const Options& options)
 {
@@ -45,7 +45,8 @@ static void Run(const Options& options)
     ACL_CHECK(aclrtSetDevice(options.deviceId));
     ACL_CHECK(aclrtCreateStream(&stream));
 
-    // m、n、k
+    // group_num、m、n、k
+    uint32_t problemCount = options.problemCount;
     uint32_t m = options.problemShape.m();
     uint32_t n = options.problemShape.n();
     uint32_t k = options.problemShape.k();
@@ -55,15 +56,18 @@ static void Run(const Options& options)
     using ElementB = float8_e4m3_t;
     using ElementPrologueB = float4_e2m1x2_t;
     using ElementMxScale = float8_e8m0_t;
-    using ElementC = float;
+    using ElementC = half;
     using ElementBias = void;
+
+    using ElementGroupList = int64_t;
 
     using ElementBiasType = std::conditional_t<std::is_void_v<ElementBias>, uint8_t, ElementBias>;
 
     // basic layout
     using LayoutA = layout::RowMajor;
     using LayoutB = layout::nZ;
-    using LayoutPrologueB = layout::ColumnMajor;
+    using LayoutPrologueB = layout::Weight4BitnZ;
+    using LayoutMxScaleB = layout::ColumnMajor;
     using LayoutC = layout::RowMajor;
 
     // makeLayout
@@ -76,10 +80,10 @@ static void Run(const Options& options)
 
     // data length
     size_t lenA = tagA.Capacity();
-    size_t lenPrologueB = tagPrologueB.Capacity();
+    size_t lenPrologueB = tagPrologueB.Capacity() * problemCount;
     uint32_t mxScaleAlignedK = RoundUp<MX_k_ALIGN>(mxScaleK);
-    size_t lenMxScaleA = m * mxScaleAlignedK;
-    size_t lenMxScaleB = mxScaleAlignedK * n;
+    size_t lenMxScaleA = static_cast<size_t>(m) * mxScaleAlignedK;
+    size_t lenMxScaleB = static_cast<size_t>(mxScaleAlignedK) * n * problemCount;
     size_t lenC = tagC.Capacity();
     size_t lenBias = static_cast<size_t>(n);
 
@@ -90,6 +94,7 @@ static void Run(const Options& options)
     size_t sizeMxScaleB = lenMxScaleB * sizeof(ElementMxScale);
     size_t sizeC = lenC * sizeof(ElementC);
     size_t sizeBias = lenBias * sizeof(ElementBiasType);
+    size_t sizeGroupList = problemCount * sizeof(ElementGroupList);
     size_t sizeWorkspace;
 
     // host
@@ -98,6 +103,7 @@ static void Run(const Options& options)
     std::vector<int8_t> hostMxScaleA(lenMxScaleA);
     std::vector<int8_t> hostMxScaleB(lenMxScaleB);
     std::vector<ElementBiasType> hostBias(lenBias);
+    std::vector<ElementGroupList> hostGroupList(sizeGroupList);
 
     const auto releaseAclEarly = [&]() {
         ACL_CHECK(aclrtDestroyStream(stream));
@@ -121,6 +127,10 @@ static void Run(const Options& options)
         releaseAclEarly();
         return;
     }
+    if (!ReadFile(kDataRoot + "/input/group_list.bin", hostGroupList.data(), sizeGroupList)) {
+        releaseAclEarly();
+        return;
+    }
     if constexpr (!std::is_void_v<ElementBias>) {
         if (!ReadFile(kDataRoot + "/input/bias.bin", hostBias.data(), sizeBias)) {
             releaseAclEarly();
@@ -129,6 +139,11 @@ static void Run(const Options& options)
     }
 
     // device
+    uint8_t* deviceGroupList{nullptr};
+    ACL_CHECK(aclrtMalloc(reinterpret_cast<void**>(&deviceGroupList), sizeGroupList, ACL_MEM_MALLOC_HUGE_FIRST));
+    ACL_CHECK(
+        aclrtMemcpy(deviceGroupList, sizeGroupList, hostGroupList.data(), sizeGroupList, ACL_MEMCPY_HOST_TO_DEVICE));
+
     uint8_t* deviceA{nullptr};
     ACL_CHECK(aclrtMalloc(reinterpret_cast<void**>(&deviceA), sizeA, ACL_MEM_MALLOC_HUGE_FIRST));
     ACL_CHECK(aclrtMemcpy(deviceA, sizeA, hostA.data(), sizeA, ACL_MEMCPY_HOST_TO_DEVICE));
@@ -170,8 +185,8 @@ static void Run(const Options& options)
     static constexpr uint32_t L0C_STAGES = 1;
 
     // shape & type
-    using L1TileShape = Shape<Int<128>, Int<128>, Int<128>>;
-    using L0TileShape = Shape<Int<128>, Int<128>, Int<128>>;
+    using L1TileShape = Shape<Int<256>, Int<256>, Int<256>>;
+    using L0TileShape = Shape<Int<256>, Int<256>, Int<128>>;
     using PrologueSrcType = Gemm::GemmType<ElementPrologueB, LayoutPrologueB>;
     using PrologueDstType = Gemm::GemmType<ElementB, LayoutB>;
 
@@ -184,7 +199,7 @@ static void Run(const Options& options)
     auto layoutA = tla::MakeLayout<ElementA, LayoutA>(m, k);
     auto layoutprologueB = tla::MakeLayout<ElementPrologueB, LayoutPrologueB>(k, n);
     auto layoutMxScaleA = tla::MakeMxScaleLayout<ElementMxScale, LayoutA, false>(m, mxScaleK);
-    auto layoutMxScaleB = tla::MakeMxScaleLayout<ElementMxScale, LayoutPrologueB, true>(mxScaleK, n);
+    auto layoutMxScaleB = tla::MakeMxScaleLayout<ElementMxScale, LayoutMxScaleB, true>(mxScaleK, n);
     auto layoutC = tla::MakeLayout<ElementC, LayoutC>(m, n);
 
     // tile
@@ -207,13 +222,14 @@ static void Run(const Options& options)
     using BlockScheduler = typename Gemm::Block::GemmIdentityBlockSwizzle<3, 0>;
 
     // kernel level
-    using MatmulKernel = Gemm::Kernel::A8W4MxMatmul<BlockMmad, BlockPrologue, BlockEpilogue, BlockScheduler>;
+    using MatmulKernel =
+        Gemm::Kernel::A8W4GroupedMxMatmul<BlockMmad, BlockPrologue, BlockEpilogue, BlockScheduler, ElementGroupList>;
 
     using MatmulAdapter = Gemm::Device::DeviceGemm<MatmulKernel>;
 
-    MatmulKernel::Arguments arguments{options.problemShape, deviceA,        layoutA,        deviceB,
-                                      layoutprologueB,      deviceMxScaleA, layoutMxScaleA, deviceMxScaleB,
-                                      layoutMxScaleB,       deviceC,        layoutC,        deviceBias};
+    MatmulKernel::Arguments arguments{
+        options.problemShape, options.problemCount, deviceGroupList, deviceA,        layoutA, deviceB, layoutprologueB,
+        deviceMxScaleA,       layoutMxScaleA,       deviceMxScaleB,  layoutMxScaleB, deviceC, layoutC, deviceBias};
 
     uint32_t taskNum = CeilDiv(options.problemShape.m(), tla::get<0>(L1TileShape{})) *
                        CeilDiv(options.problemShape.n(), tla::get<1>(L1TileShape{}));
@@ -227,10 +243,9 @@ static void Run(const Options& options)
     }
     matmulOp.Initialize(arguments, deviceWorkspace);
     matmulOp(stream, aicCoreUsed);
-
     ACL_CHECK(aclrtSynchronizeStream(stream));
 
-    std::vector<ElementC> hostC(lenC);
+    std::vector<fp16_t> hostC(lenC);
     ACL_CHECK(aclrtMemcpy(hostC.data(), sizeC, deviceC, sizeC, ACL_MEMCPY_DEVICE_TO_HOST));
 
     std::vector<float> hostGolden(lenC);
@@ -241,6 +256,7 @@ static void Run(const Options& options)
         ACL_CHECK(aclrtFree(deviceMxScaleA));
         ACL_CHECK(aclrtFree(deviceMxScaleB));
         ACL_CHECK(aclrtFree(deviceC));
+        ACL_CHECK(aclrtFree(deviceGroupList));
         if constexpr (!std::is_void_v<ElementBias>) {
             ACL_CHECK(aclrtFree(deviceBias));
         }
@@ -258,13 +274,38 @@ static void Run(const Options& options)
         std::cout << "Compare success." << std::endl;
     } else {
         std::cerr << "Compare failed. Error count: " << errorIndices.size() << std::endl;
+
+        for (uint32_t i = 0; i < 10; ++i) {
+            std::cout << "Index: " << errorIndices[i] << " npu:" << (float)hostC[errorIndices[i]]
+                      << " cpu:" << hostGolden[errorIndices[i]] << std::endl;
+        }
+
+        std::cout << std::endl;
+
+        for (uint32_t i = 0; i < 20; ++i) {
+            std::cout << "Index: " << i << " npu:" << (float)hostC[i] << " cpu:" << hostGolden[i] << std::endl;
+        }
+
+        uint32_t* hostAInt = reinterpret_cast<uint32_t*>(hostA.data());
+        uint32_t* hostBInt = reinterpret_cast<uint32_t*>(hostB.data());
+        uint32_t* hostMxScaleAInt = reinterpret_cast<uint32_t*>(hostMxScaleA.data());
+        uint32_t* hostMxScaleBInt = reinterpret_cast<uint32_t*>(hostMxScaleB.data());
+        for (uint32_t i = 0; i < 10; ++i) {
+            std::cout << "index: " << i << " hostA: " << hostAInt[i] << " hostB: " << hostBInt[i]
+                      << " hostMxScaleA: " << hostMxScaleAInt[i] << " hostMxScaleB: " << hostMxScaleBInt[i]
+                      << std::endl;
+        }
     }
+    // for (uint32_t i = 0; i < 20; ++i){
+    //     std::cout<< "Index: " << i << " npu:" << (float) hostC[i]<< " cpu:" << hostGolden[i]<<std::endl;
+    // }
 
     ACL_CHECK(aclrtFree(deviceA));
     ACL_CHECK(aclrtFree(deviceB));
     ACL_CHECK(aclrtFree(deviceMxScaleA));
     ACL_CHECK(aclrtFree(deviceMxScaleB));
     ACL_CHECK(aclrtFree(deviceC));
+    ACL_CHECK(aclrtFree(deviceGroupList));
     if constexpr (!std::is_void_v<ElementBias>) {
         ACL_CHECK(aclrtFree(deviceBias));
     }

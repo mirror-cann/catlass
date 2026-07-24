@@ -108,6 +108,16 @@ struct TagToLayout<float8_e8m0_t, layout::nN> {
         tla::Stride<
             tla::Stride<tla::Int<1>, tla::Int<ELE_NUM_PER_FRACTAL>>, tla::Stride<tla::Int<ELE_NUM_PER_C0>, int64_t>>>;
 };
+
+template <>
+struct TagToLayout<float4_e2m1x2_t, layout::Weight4BitnZ> {
+    static constexpr uint32_t ELE_NUM_PER_C0 = 32;
+    static constexpr uint32_t ELE_NUM_PER_FRACTAL = 512;
+    using type = tla::Layout<
+        tla::Shape<tla::Shape<tla::Int<ELE_NUM_PER_C0>, uint32_t>, tla::Shape<tla::Int<C0_NUM_PER_FRACTAL>, uint32_t>>,
+        tla::Stride<
+            tla::Stride<tla::Int<1>, int64_t>, tla::Stride<tla::Int<ELE_NUM_PER_C0>, tla::Int<ELE_NUM_PER_FRACTAL>>>>;
+};
 #endif
 
 // Convenience aliases
