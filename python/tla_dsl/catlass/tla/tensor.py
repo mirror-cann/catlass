@@ -172,6 +172,7 @@ class _Tensor(TensorABC):
             _as_value,
             _coerce_type,
             _full_vector_ssa_descriptor,
+            _op_error,
             _require_frontend_state,
             _tla_tensor_type_for_mlir_value,
             _vector_ssa_type_from_tensor_descriptor,
@@ -220,6 +221,12 @@ class _Tensor(TensorABC):
 
         source = _as_value(self)
         source_desc = _tla_tensor_type_for_mlir_value(source)
+        if source_desc.addrspace.lower() != "ub":
+            _op_error(
+                "load",
+                "invalid argument 'source' (position 0): expected addrspace ub, "
+                f"got {source_desc.addrspace}",
+            )
         if is_dintlv:
             # AscendNPU-IR lowers DINTLV_B32 only to vldsx2.v64f32; reject
             # i32/u32 (and other dtypes) at the frontend until IR dispatches.
@@ -271,9 +278,11 @@ class _Tensor(TensorABC):
         """
         from ..core_api import (
             _as_value,
+            _op_error,
             _require_category,
             _require_frontend_state,
             _require_mask_matches_vector,
+            _tla_tensor_type_for_mlir_value,
         )
         from ..execution_lowering import TlaLoweringError
         from ..params import NormalStoreParams, StoreParams, UnalignStoreParams
@@ -291,6 +300,14 @@ class _Tensor(TensorABC):
             )
         _require_frontend_state("store")
         _runtime._require_enclosing_region("store", "vec.func")
+        dest = _as_value(self)
+        dest_desc = _tla_tensor_type_for_mlir_value(dest)
+        if dest_desc.addrspace.lower() != "ub":
+            _op_error(
+                "store",
+                "invalid argument 'dest' (position 0): expected addrspace ub, "
+                f"got {dest_desc.addrspace}",
+            )
         value_val = _as_value(value)
         mask_val = _as_value(mask) if mask is not None else None
         if mask_val is not None:
@@ -298,7 +315,7 @@ class _Tensor(TensorABC):
         store_kwargs: dict[str, Any] = {"loc": loc}
         if isinstance(params, UnalignStoreParams):
             store_kwargs["unaligned_ub_access"] = True
-        _tla_ops_gen.store(_as_value(self), value_val, mask=mask_val, **store_kwargs)
+        _tla_ops_gen.store(dest, value_val, mask=mask_val, **store_kwargs)
 
     def _check_can_scalar_load_store(self) -> None:
         """Phase-1 ``scalar_load``/``scalar_store`` preconditions (GM only; not ``tla.load``/``tla.store``)."""

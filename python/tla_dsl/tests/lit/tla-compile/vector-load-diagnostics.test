@@ -1,0 +1,18 @@
+// RUN: not %tla_compile %s -o %t 2>&1 | %filecheck %s
+
+// CHECK: error:
+// CHECK-SAME: 'tla.load' op source !tla.tensor must be in ub address space
+
+!gm = !tla.tensor<!tla.layout<!tla.shape<1>, !tla.stride<1>, !tla.shape<1>, row_major>, !tla.coord<0>, !tla.ptr<f32, gm, 4>>
+
+module {
+  func.func @load_from_gm_diagnostic(%src_memref: memref<1xf32, #hivm.address_space<gm>>) {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %src = tla.tensor_desc %src_memref[%c0, %c0, %c1, %c1, %c1, %c1, %c1, %c1] : (memref<1xf32, #hivm.address_space<gm>>, index, index, index, index, index, index, index, index) -> !gm
+    "tla.vec.func"() ({
+      %loaded = tla.load %src {load_dist = #tla.load_dist<brc_b32>} : !gm -> !tla.vector<64xf32>
+    }) : () -> ()
+    return
+  }
+}

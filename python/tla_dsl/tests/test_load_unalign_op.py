@@ -25,6 +25,21 @@ def _ub_tensor(
         )
 
 
+def _gm_tensor(
+    dtype: type[tla.Numeric] = tla.Float32,
+    extent: int = 64,
+) -> tla.Tensor:
+    with runtime_mod._eager_capture():
+        shape = tla.make_shape(extent)
+        return tla.Tensor(
+            shape,
+            dtype,
+            addrspace=tla.AddressSpace.gm,
+            origin_shape=shape,
+            layout_tag=tla.arch.RowMajor,
+        )
+
+
 @tla.kernel
 def load_unalign_kernel(src: tla.Tensor, dst: tla.Tensor) -> None:
     src_tile = tla.tile_view(src, tla.make_shape(64), tla.make_coord(0))
@@ -58,6 +73,14 @@ def load_unalign_outside_vec_func(src: tla.Tensor) -> None:
     src_tile = tla.tile_view(src, tla.make_shape(64), tla.make_coord(0))
     with tla.vector():
         _ = src_tile.load(UnalignLoadParams())
+
+
+@tla.kernel
+def load_from_gm_kernel(src: tla.Tensor) -> None:
+    src_tile = tla.tile_view(src, tla.make_shape(1), tla.make_coord(0))
+    with tla.vector():
+        with tla.vec.func(mode="simd"):
+            _ = src_tile.load(NormalLoadParams(load_dist=LoadDist.DIST_BRC_B32))
 
 
 def test_load_unalign_emits_tlair(compiler_tlair: Any) -> None:
@@ -292,6 +315,14 @@ def load_unalign_post_update_stride_kernel(src: tla.Tensor, dst: tla.Tensor) -> 
 def test_load_unalign_requires_vec_func() -> None:
     with pytest.raises(tla.TlaCoreAPIError, match="vec.func"):
         load_unalign_outside_vec_func.dump_mlir(type_args=(_ub_tensor(),))
+
+
+def test_load_rejects_gm_tensor(compiler_tlair: Any) -> None:
+    with pytest.raises(
+        tla.TlaCoreAPIError,
+        match="invalid argument 'source'.*expected addrspace ub, got gm",
+    ):
+        compiler_tlair(load_from_gm_kernel, type_args=(_gm_tensor(),))
 
 
 @pytest.mark.parametrize(

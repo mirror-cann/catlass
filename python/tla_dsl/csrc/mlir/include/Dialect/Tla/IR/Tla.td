@@ -647,7 +647,8 @@ def Tla_FuncOp : Tla_Op<"func", []> {
 def Tla_LoadOp : Tla_Op<"load", []> {
   let summary = "Load";
   let description = [{
-    Load a tensor tile into vector SSA. Must be nested inside a ``tla.vec.func``
+    Load a UB tensor tile into vector SSA. The source tensor must be in the UB
+    address space, and the operation must be nested inside a ``tla.vec.func``
     region. When ``unaligned_ub_access`` is set, lowers to ``ave.hir.vload`` with
     unaligned UB access (``vldas``/``vldus`` inserted by the HIVMAVE pipeline).
     Dual-destination ``dintlv_b32`` produces a second result (even/odd b32
@@ -905,10 +906,11 @@ def Tla_SetFlagOp : Tla_Op<"set_flag", []> {
 def Tla_StoreOp : Tla_Op<"store", []> {
   let summary = "Store";
   let description = [{
-    Register-fragment store marker on a tensor tile. An optional mask controls
-    which lanes are written (masked-out lanes are left untouched). When
-    ``unaligned_ub_access`` is set, lowers to ``ave.hir.vstore`` with unaligned
-    UB access (``vstas``/``vstus`` inserted by the HIVMAVE pipeline).
+    Store vector SSA into a UB tensor tile. The destination tensor must be in
+    the UB address space. An optional mask controls which lanes are written
+    (masked-out lanes are left untouched). When ``unaligned_ub_access`` is set,
+    lowers to ``ave.hir.vstore`` with unaligned UB access (``vstas``/``vstus``
+    inserted by the HIVMAVE pipeline).
     Must be nested inside a ``tla.vec.func`` region.
   }];
   let arguments = (ins Tla_TensorType:$dest, Tla_VectorSSAType:$source,

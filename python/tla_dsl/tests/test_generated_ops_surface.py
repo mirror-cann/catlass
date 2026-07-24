@@ -101,10 +101,16 @@ def test_generated_binding_symbols_exist_for_wrapped_ops() -> None:
 def test_mask_bitwise_public_dispatch_emits_mask_ops() -> None:
     with runtime_mod._eager_capture():
         src = tla.Tensor(
-            tla.make_shape(64), tla.Float32, origin_shape=tla.make_shape(64)
+            tla.make_shape(64),
+            tla.Float32,
+            addrspace=tla.AddressSpace.ub,
+            origin_shape=tla.make_shape(64),
         )
         dst = tla.Tensor(
-            tla.make_shape(64), tla.Float32, origin_shape=tla.make_shape(64)
+            tla.make_shape(64),
+            tla.Float32,
+            addrspace=tla.AddressSpace.ub,
+            origin_shape=tla.make_shape(64),
         )
     mlir = _mask_bitwise_surface_kernel.dump_mlir(type_args=(src, dst))
     for op_name in (

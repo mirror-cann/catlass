@@ -255,6 +255,11 @@ TLA_VERIFY_MASKED_VECTOR_OPERAND(NegOp)
 mlir::LogicalResult StoreOp::verify() {
   if (!hasEnclosingRegion<VecFuncOp>(getOperation()))
     return emitOpError("must be nested inside a tla.vec.func region");
+  auto destType = mlir::dyn_cast<TlaTensorType>(getDest().getType());
+  if (!destType)
+    return emitOpError("dest must be !tla.tensor");
+  if (destType.getPtr().getAddrspace() != AddressSpace::ub)
+    return emitOpError("dest !tla.tensor must be in ub address space");
   return verifyMaskMatchesVector(getOperation(), getMask(),
                                  getSource().getType());
 }
@@ -324,6 +329,12 @@ mlir::LogicalResult ReduceOp::verify() {
 mlir::LogicalResult LoadOp::verify() {
   if (!hasEnclosingRegion<VecFuncOp>(getOperation()))
     return emitOpError("must be nested inside a tla.vec.func region");
+
+  auto sourceType = mlir::dyn_cast<TlaTensorType>(getSource().getType());
+  if (!sourceType)
+    return emitOpError("source must be !tla.tensor");
+  if (sourceType.getPtr().getAddrspace() != AddressSpace::ub)
+    return emitOpError("source !tla.tensor must be in ub address space");
 
   bool isDintlv = false;
   if (auto loadDistAttr = getLoadDist())
