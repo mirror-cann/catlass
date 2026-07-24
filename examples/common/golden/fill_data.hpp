@@ -45,6 +45,22 @@ void FillRandomData<int8_t, int>(std::vector<int8_t>& data, int low, int high)
     }
 }
 
+template <class Element, class ElementRandom>
+void FillSymmRandomData(
+    std::vector<Element>& data, uint32_t dim, bool upperStorage, ElementRandom low, ElementRandom high)
+{
+    FillRandomData(data, low, high);
+    for (uint32_t r = 0; r < dim; ++r) {
+        for (uint32_t c = 0; c < r; ++c) {
+            if (upperStorage) {
+                data[r * dim + c] = data[c * dim + r];
+            } else {
+                data[c * dim + r] = data[r * dim + c];
+            }
+        }
+    }
+}
+
 template <typename T>
 void QuickSort(std::vector<T>& arr, int left, int right)
 {

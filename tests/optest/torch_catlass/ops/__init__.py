@@ -2,10 +2,12 @@
 # Copyright (c) 2026 Huawei Technologies Co., Ltd.
 # This file is a part of the CANN Open Software.
 # Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
-# Please refer to the License for details. You may not use this file except in compliance with the License.
-# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING
-# BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See LICENSE in the root of
-# the software repository for the full text of the License.
+# Please refer to the License for details. You may not use this file except in compliance
+# with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS
+# OR IMPLIED, INCLUDING
+# BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
 
 from .a2_fp8_e4m3_matmul import a2_fp8_e4m3_matmul  # example 29
 from .ascend950_basic_conv2d_tla import ascend950_basic_conv2d_tla  # example 56
@@ -103,6 +105,7 @@ from .splitk_matmul import splitk_matmul  # example 09
 from .streamk_matmul import streamk_matmul  # example 37
 from .strided_batched_matmul_tla import strided_batched_matmul_tla  # example 45
 from .svd_quant_matmul import ascend950_svd_quant_matmul  # example 61
+from .symm import symm  # example 75
 from .tail_multi_core_splitk_matmul import ascend950_tail_multi_core_splitk_matmul  # example 69
 from .w4a4_matmul_per_token_per_channel_dequant import (
     w4a4_matmul_per_token_per_channel_dequant,  # example 38
@@ -191,5 +194,6 @@ __all__ = [
     "ascend950_fp8_mx_grouped_matmul_finalize_routing_no_deter",  # example 71 no_deter
     "ascend950_basic_conv2d_tla",  # example 56
     "ascend950_matmul_full_loadA",  # example 73
+    "symm",  # example 75
     "grouped_matmul_slice_m_gelu",  # example 80
 ]

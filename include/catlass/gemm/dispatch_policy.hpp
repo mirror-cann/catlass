@@ -145,6 +145,18 @@ struct MmadAtlasA2PingpongBias : public MmadAtlasA2 {
     static constexpr bool ENABLE_UNIT_FLAG = ENABLE_UNIT_FLAG_;
 };
 
+template <bool ENABLE_UNIT_FLAG_ = false>
+struct MmadAtlasA2PingpongSymmLeft : public MmadAtlasA2 {
+    static constexpr uint32_t STAGES = 2;
+    static constexpr bool ENABLE_UNIT_FLAG = ENABLE_UNIT_FLAG_;
+};
+
+template <bool ENABLE_UNIT_FLAG_ = false>
+struct MmadAtlasA2PingpongSymmRight : public MmadAtlasA2 {
+    static constexpr uint32_t STAGES = 2;
+    static constexpr bool ENABLE_UNIT_FLAG = ENABLE_UNIT_FLAG_;
+};
+
 template <bool PAGED_CACHE_FLAG_ = false, bool ENABLE_UNIT_FLAG_ = false>
 struct MmadAtlasA2FAIQK : public MmadAtlasA2 {
     static constexpr uint32_t STAGES = 2;
@@ -312,6 +324,18 @@ struct MmadPingpongMutex : public MmadBase<ArchTag_, false> {
     static constexpr bool ENABLE_UNIT_FLAG = ENABLE_UNIT_FLAG_;
     static constexpr bool USE_HF32_MODE = USE_HF32_MODE_;
     static constexpr bool ENABLE_L1_RESIDENT = ENABLE_L1_RESIDENT_;
+};
+
+template <class ArchTag_, bool ENABLE_UNIT_FLAG_ = false>
+struct MmadPingpongSymmLeft : public MmadBase<ArchTag_, false> {
+    static constexpr uint32_t STAGES = 2;
+    static constexpr bool ENABLE_UNIT_FLAG = ENABLE_UNIT_FLAG_;
+};
+
+template <class ArchTag_, bool ENABLE_UNIT_FLAG_ = false>
+struct MmadPingpongSymmRight : public MmadBase<ArchTag_, false> {
+    static constexpr uint32_t STAGES = 2;
+    static constexpr bool ENABLE_UNIT_FLAG = ENABLE_UNIT_FLAG_;
 };
 
 template <class ArchTag_, bool USE_HF32_MODE_ = false, uint32_t L0C_STAGES_ = 2>

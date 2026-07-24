@@ -134,6 +134,8 @@ struct BlockPrologue {
 
 /// TLA block utility
 #include "catlass/gemm/block/block_mmad_pingpong_tla.hpp"
+#include "catlass/gemm/block/block_mmad_pingpong_symm_left_tla.hpp"
+#include "catlass/gemm/block/block_mmad_pingpong_symm_right_tla.hpp"
 #include "catlass/gemm/block/block_mmad_pingpong_dequant_tla.hpp"
 #include "catlass/gemm/block/block_mmad_pingpong_tla_v2.hpp"
 #include "catlass/gemm/block/block_mmad_preload_tla.hpp"

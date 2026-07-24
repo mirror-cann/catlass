@@ -116,6 +116,15 @@ struct GemmParams : public MatmulParams {
 };
 
 /**
+ * @brief Runtime parameters for example 75_symm.
+ */
+struct SymmParams : public MatmulParams {
+    uint32_t side = 0;  ///< 0: left symmetric input, 1: right symmetric input.
+    uint32_t uplo = 0;  ///< 0: lower triangle is stored, 1: upper triangle is stored.
+    float alpha = 1.0f; ///< Reserved for API parity. The current kernel supports only alpha=1.
+};
+
+/**
  * @brief Runtime parameters for example 61_ascend950_svd_quant_matmul.
  */
 struct SvdQuantMatmulParams : public MatmulParams {
@@ -491,6 +500,10 @@ void Ascend950Fp8MxGroupedMatmulFinalizeRoutingNoDeter(
  */
 void Ascend950MatmulFullLoadA(
     const uint32_t blockNum, aclrtStream stream, const TParams& tParams, const MatmulParams& params);
+/**
+ * @brief JIT interface for example 75_symm.
+ */
+void Symm(const uint32_t blockNum, aclrtStream stream, const TParams& tParams, const SymmParams& params);
 
 /**
  * @brief Reserved JIT interface for example 74_ascend950_weight_quant_a8w4_grouped_mx_matmul.

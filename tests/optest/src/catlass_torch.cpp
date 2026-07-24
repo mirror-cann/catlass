@@ -49,7 +49,7 @@
 #include "template/a8w4_grouped_mx_matmul.h"
 #include "template/svd_quant_matmul.h"
 #include "template/conv_bias.h"
-
+#include "template/symm.h"
 // ── Workspace allocator bridge ──
 // 通过 dlsym 注入到 g_catlassWorkspaceAlloc，使 JIT 模板分配 NPU tensor
 // 而非裸 aclrtMalloc。tensor 保存在静态池中，kernel 执行期间有效。
@@ -87,8 +87,8 @@ void wsFree(uint8_t* p, size_t)
         }
 }
 
-struct _WsInit {
-    _WsInit()
+struct WsInit {
+    WsInit()
     {
         auto sa = (void (*)(decltype(wsAlloc)*))dlsym(RTLD_DEFAULT, "CatlassSetWorkspaceAlloc");
         auto sf = (void (*)(decltype(wsFree)*))dlsym(RTLD_DEFAULT, "CatlassSetWorkspaceFree");
@@ -100,7 +100,7 @@ struct _WsInit {
         if (sc)
             sc(wsAllocFromHost);
     }
-} _wsInit;
+} wsInit;
 } // namespace
 
 namespace CatlassKernelWrapper {
@@ -402,6 +402,10 @@ REGISTER_TORCH_FUNC(ascend950_basic_conv2d_tla);
 
 static auto& conv_bias = ConvBiasOp::Run;
 REGISTER_TORCH_FUNC(conv_bias);
+
+using SymmOp = SymmLike<CatlassKernel::Symm>;
+static auto& symm = SymmOp::Run;
+REGISTER_TORCH_FUNC(symm);
 
 using GroupedMatmulSliceMGeluOp = GroupedMatmulLike<CatlassKernel::GroupedMatmulSliceMGelu, GmmSliceDir::M>;
 static auto& grouped_matmul_slice_m_gelu = GroupedMatmulSliceMGeluOp::Run;
