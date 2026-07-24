@@ -174,7 +174,7 @@ def basic_vadd_atomic_add(mem_x: tla.Tensor, mem_y: tla.Tensor, mem_z: tla.Tenso
 
     x_gm = tla.tile_view(mem_x, tla.make_shape(VECTOR_ELE), tla.make_coord(0))
     y_gm = tla.tile_view(mem_y, tla.make_shape(VECTOR_ELE), tla.make_coord(0))
-    z_gm = tla.tile_view(mem_z, tla.make_shape(VECTOR_ELE), tla.make_coord(0))
+    z_gm = tla.make_tensor(mem_z.ptr, tla.make_layout(shape=tla.make_shape(VECTOR_ELE),stride=tla.make_stride(1)))
 
     x_ub_ptr = tla.allocate(VECTOR_ELE, _KERNEL_DTYPE, tla.AddressSpace.ub, 256)
     y_ub_ptr = tla.allocate(VECTOR_ELE, _KERNEL_DTYPE, tla.AddressSpace.ub, 256)
